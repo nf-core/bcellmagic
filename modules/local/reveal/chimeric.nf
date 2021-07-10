@@ -3,9 +3,8 @@ include { initOptions; saveFiles; getSoftwareName } from '../functions'
 params.options = [:]
 def options    = initOptions(params.options)
 
-process CHANGEO_ASSIGNGENES {
+process CHIMERIC {
     tag "$meta.id"
-    label 'process_low'
 
     publishDir "${params.outdir}",
         mode: params.publish_dir_mode,
@@ -21,21 +20,19 @@ process CHANGEO_ASSIGNGENES {
     } else {
         container params.custom_container
     }
-
+    
     input:
-    tuple val(meta), path(reads) // reads in fasta format
-    path(igblast) // igblast fasta
+    tuple val(meta), path(tab) // sequence tsv in AIRR format
+    path(imgt_base)
 
     output:
-    path("*igblast.fmt7"), emit: blast
-    tuple val(meta), path("$reads"), emit: fasta
-    path "*.version.txt" , emit: version
+    tuple val(meta), path("*chimera-pass.tsv"), emit: tab // sequence tsv in AIRR format
+    path("*_command_log.txt"), emit: logs //process logs
 
     script:
-    def software = getSoftwareName(task.process)
+    germline_db = tab.getBaseName().toString() + '_germ-pass.tsv'
     """
-    AssignGenes.py igblast -s $reads -b $igblast --organism $params.species --loci $params.loci --format blast --nproc $task.cpus --outname "$meta.id"
-    AssignGenes.py --version | awk -F' '  '{print \$2}' > ${software}.version.txt
-    igblastn -version | grep -o "igblast[0-9\\. ]\\+" | grep -o "[0-9\\. ]\\+" > igblast.version.txt
+    CreateGermlines.py -d $tab -r ${imgt_base}/${meta.species}/vdj/ -g dmask --format airr > "${meta.id}_${task.process}_create-germlines_command_log.txt"
+    reveal_chimeric.R --repertoire ${germline_db} --outname ${meta.id} > "${meta.id}_${task.process}_chimeric_command_log.txt"
     """
 }

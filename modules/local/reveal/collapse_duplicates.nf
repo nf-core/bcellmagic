@@ -3,13 +3,12 @@ include { initOptions; saveFiles; getSoftwareName } from '../functions'
 params.options = [:]
 def options    = initOptions(params.options)
 
-process CHANGEO_ASSIGNGENES {
-    tag "$meta.id"
-    label 'process_low'
+process COLLAPSE_DUPLICATES {
+    tag "$ids"
 
     publishDir "${params.outdir}",
         mode: params.publish_dir_mode,
-        saveAs: { filename -> saveFiles(filename:filename, options:params.options, publish_dir:getSoftwareName(task.process), publish_id:meta.id) }
+        saveAs: { filename -> saveFiles(filename:filename, options:params.options, publish_dir:getSoftwareName(task.process), publish_id:getMetaFromFilename(filename,'',task.process)) }
 
     conda (params.enable_conda ? "bioconda::changeo=1.0.2 bioconda::igblast=1.15.0" : null)              // Conda package
     if (!params.custom_container) {
@@ -21,21 +20,31 @@ process CHANGEO_ASSIGNGENES {
     } else {
         container params.custom_container
     }
-
+    
     input:
-    tuple val(meta), path(reads) // reads in fasta format
-    path(igblast) // igblast fasta
+    tuple val(meta), path(tab) // sequence tsv in AIRR format
+    val(collapseby)
 
     output:
-    path("*igblast.fmt7"), emit: blast
-    tuple val(meta), path("$reads"), emit: fasta
-    path "*.version.txt" , emit: version
+    tuple val(meta), path("*collapse-pass.tsv"), emit: tab // sequence tsv in AIRR format
+    path("*_command_log.txt"), emit: logs //process logs
 
     script:
-    def software = getSoftwareName(task.process)
+    repertoires = tab.join(',')
+    ids = meta.id.join(',')
     """
-    AssignGenes.py igblast -s $reads -b $igblast --organism $params.species --loci $params.loci --format blast --nproc $task.cpus --outname "$meta.id"
-    AssignGenes.py --version | awk -F' '  '{print \$2}' > ${software}.version.txt
-    igblastn -version | grep -o "igblast[0-9\\. ]\\+" | grep -o "[0-9\\. ]\\+" > igblast.version.txt
+    reveal_collapseDuplicates.R --repertoire ${repertoires} --ids ${ids} --collapseby ${collapseby} > "${ids}_${task.process}_command_log.txt"
     """
+}
+
+def getMetaFromFilename (fn, outname='',p='') {
+    if (fn.contains('_command_log.txt')) {
+        tail='_'+p+'_command_log.txt'
+        meta = fn.split(tail)[0]
+        meta = meta.split(",")[0]
+    } else {
+        tail=outname+'_collapse-pass.tsv'
+        meta = fn.split(tail)[0]
+    }
+    return meta
 }

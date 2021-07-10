@@ -3,9 +3,8 @@ include { initOptions; saveFiles; getSoftwareName } from '../functions'
 params.options = [:]
 def options    = initOptions(params.options)
 
-process CHANGEO_ASSIGNGENES {
+process FILTER_QUALITY {
     tag "$meta.id"
-    label 'process_low'
 
     publishDir "${params.outdir}",
         mode: params.publish_dir_mode,
@@ -21,21 +20,16 @@ process CHANGEO_ASSIGNGENES {
     } else {
         container params.custom_container
     }
-
+    
     input:
-    tuple val(meta), path(reads) // reads in fasta format
-    path(igblast) // igblast fasta
+    tuple val(meta), path(tab) // sequence tsv in AIRR format
 
     output:
-    path("*igblast.fmt7"), emit: blast
-    tuple val(meta), path("$reads"), emit: fasta
-    path "*.version.txt" , emit: version
+    tuple val(meta), path("*quality-pass.tsv"), emit: tab // sequence tsv in AIRR format
+    path("*_command_log.txt"), emit: logs //process logs
 
     script:
-    def software = getSoftwareName(task.process)
     """
-    AssignGenes.py igblast -s $reads -b $igblast --organism $params.species --loci $params.loci --format blast --nproc $task.cpus --outname "$meta.id"
-    AssignGenes.py --version | awk -F' '  '{print \$2}' > ${software}.version.txt
-    igblastn -version | grep -o "igblast[0-9\\. ]\\+" | grep -o "[0-9\\. ]\\+" > igblast.version.txt
+    reveal_filter_quality.R --repertoire $tab --outname ${meta.id} > "${meta.id}_${task.process}_command_log.txt"
     """
 }
